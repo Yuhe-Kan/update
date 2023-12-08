@@ -1,0 +1,249 @@
+---
+title: A comprehensive bibliometric analysis of gene family research regarding abiotic
+  or biotic stress
+author: "Yuhe Kan"
+date: "2023-12-06"
+output:pdf_document: default
+---
+## Introduction
+The codes will product all figures and tables in our manuscript, including the growth rate of publications, the described information of countries, authors, institutions, sources, documents, keywords and their collaborations, co-citations and co-occurrences as well as trending topics.
+
+## Loading the packages
+```{r,message=FALSE, warning=FALSE,results='hide'}
+devtools::install_github("massimoaria/bibliometrix")
+library("bibliometrix")
+```
+
+## Data loading and converting
+```{r,message=FALSE, warning=FALSE,results='hide'}
+file <- ("./data/rawdata_all.txt")
+M <- convert2df(file = file, dbsource = "wos", format = "plaintext")
+#filter data
+M_filter<-subset(M,PT=="J" & LA=="ENGLISH" & PY<2023)
+M_filter<-M_filter[-grep("^NA$",M_filter$AU),]
+M_filter<-M_filter[grep("^ARTICLE$",M_filter$DT),]
+```
+
+## Table 1 Main information
+```{r,message=FALSE, warning=FALSE,results='hide'}
+results <- biblioAnalysis(M_filter, sep = ";")
+Summary <- summary(object = results, k = 10, pause = FALSE)
+```
+```{r}
+print(Summary$MainInformationDF)
+```
+
+## Figure 2 Annual Scientific Production
+```{r,message=FALSE, warning=FALSE,results='hide'}
+library(tidyverse)
+library(ggplot2)
+library(png)
+ASP = read.table("./data/Fig2_ASP.txt", header=T, sep="\t",comment.char="")
+ggplot(ASP,aes(Year,Articles),shape=Articles)+ 
+  geom_point(size=4)+ 
+  geom_line(position = position_dodge(0.1),cex=1.3)+
+  scale_x_continuous(expand = c(0,0),limits = c(1996.2,2022.9),breaks = ASP$Year)+
+  scale_y_continuous(expand = c(0,0),limits = c(-100,600))+
+  labs(x='Year Published',y='Numbers of Articles')+
+  theme_classic(base_size = 15)+
+  theme(legend.position = c(0.8,0.55),
+        legend.background = element_rect(fill = 'transparent'),
+        panel.border = element_blank())+
+  labs(title="Annual Scientific Production")+
+  theme(panel.grid.minor=element_line())+
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.text.x = element_text(angle = 90,vjust = 0.85,hjust = 0.75))
+```
+
+## Figure 3 and Table S1 Most cited countries, Country scientific production and collaboration
+```{r,message=FALSE, warning=FALSE,fig.show='hide'}
+#Figure 3A Most productive countries 
+MPC <- plot(x = results, k = 10, pause = FALSE)
+```
+```{r}
+MPC$MostProdCountries
+```
+
+```{r,message=FALSE, warning=FALSE,results='hide'}
+#Figure 3B Total Citations per country 
+library(tidyverse)
+TCPC = read.table("data/Fig3B_TCPC.txt", header=T, sep="\t",  comment.char="")
+TCPC <- TCPC %>%
+  mutate(Value = ifelse(Type == "Average Article Citations",
+                        -1*Value,
+                        0.01*(Value)))
+ggplot(TCPC, aes(x =Country,y = Value, fill = Type))+
+  geom_bar(stat = "identity")+
+  geom_text(aes(label = abs(Value), hjust=ifelse(Value>0,-0.1,1.1)))+
+  coord_flip()+
+  scale_y_continuous()+
+  theme_minimal()+
+  ylim(-200,500)+
+  ggtitle("Citations per Country")+
+  ylab("Numbers of Citations")+xlab("Countries")
+```
+
+```{r,message=FALSE, warning=FALSE,results='hide'}
+#Figure 3C Networks of countries collaboration.
+M_AU_CO <- metaTagExtraction(M_filter, Field = "AU_CO")
+NetMatrix_AU_CO <- biblioNetwork(M_AU_CO, analysis = "collaboration", network = "countries")
+net_AU_CO <- networkPlot(NetMatrix_AU_CO, n = 10, type = "circle", Title = "Country Collaboration",
+                         labelsize=1,size=T,label=T,label.color=T,curved=T,noloops=T,remove.multiple=T,
+                         weighted=T,edgesize=6)
+#net2VOSviewer(net_AU_CO)
+```
+
+```{r,message=FALSE, warning=FALSE}
+#Table S1 Top countries’ scientific production
+print(Summary$MostProdCountries)
+```
+
+## Figure 4 and Table S2 Most popular sources and its co-citation network
+```{r,message=FALSE, warning=FALSE,results='hide'}
+#Figure 4A Primary source journal 
+library(tidyverse)
+MRS = read.table("data/Fig4A_MRS.txt", header=T, sep="\t", comment.char="")
+ggplot(MRS, aes(x =reorder(Sources, Articles), y = Articles, fill = CASAD))+
+  geom_bar(stat = "identity")+
+  coord_flip()+
+  geom_text(aes(label = Articles),hjust=-0.1)+
+  ylim(0,250)+
+  scale_fill_manual(values=c(Q1 = "#d5d6d8", Q2 = "#96d7f9", Q3 = "#f9e264" , Q4 = "#f47a75"))+
+  ggtitle("Most Relevant Sources")+
+  ylab("Numbers of Articles")+xlab("Journals")
+```
+
+```{r,message=FALSE, warning=FALSE,results='hide'}
+#Figure 4B Co-citation of the sources.
+M_CR_SO <- metaTagExtraction(M_filter, Field = "CR_SO", sep = ";")
+NetMatrix_CR_SO<-biblioNetwork(
+  M_CR_SO,
+  analysis = "co-citation",
+  network = "sources",
+  sep = ";")
+# Plot the network
+net_CR_SO=networkPlot(NetMatrix_CR_SO, n = 10, type = "auto", Title = "Networks of Source co-citations",
+                      labelsize=1,size=T,label=T,label.color=T,curved=T,noloops=T,remove.multiple=T,
+                      weighted=T,edgesize=6)
+#net2VOSviewer(net_CR_SO)
+```
+
+```{r,message=FALSE, warning=FALSE}
+#Table S2 Top10 preferred periodicals
+indices_source=Hindex(M_filter, field = "source", elements = NULL, years=Inf, sep = ";")
+library(dplyr)
+indices_source_H<-indices_source$H[,c("Element","NP","TC")] %>%
+  arrange(desc(NP)) %>% setNames(c("Sources","Articles","Total citations"))
+indices_source_H<-indices_source_H[1:10,]
+indices_source_H$CASAD<-c("Q2","Q2","Q2","Q2","Q3","Q2","Q2","Q3","Q3","Q3")
+print(indices_source_H)
+```
+
+## Figure 5 and Table 2 Most relevant authors, author’s collaboration and their institutional collaborations
+```{r,message=FALSE, warning=FALSE,results='hide'}
+#Figure 5A Top-authors' production over the time.
+res_APOT <- authorProdOverTime(M_filter, k=10)
+```
+
+```{r,message=FALSE, warning=FALSE,results='hide'}
+#Figure 5B Authors' collaboration network.
+M_CR_AU <- metaTagExtraction(M_filter, Field = "CR_AU", sep = ";")
+# WCR_CR_AU <- cocMatrix(M_CR_AU, Field = "CR_AU", type = "sparse", sep = ";")
+NetMatrix_CR_AU<-biblioNetwork(
+  M_CR_AU,
+  analysis = "collaboration",
+  network = "authors",
+  sep = ";")
+# Plot the network
+net_CR_AU=networkPlot(NetMatrix_CR_AU, n = 20, type = "auto", Title = "Networks of Author co-citations",
+                      labelsize=0.6,size=T,label=T,label.color=T,curved=T,noloops=T,remove.multiple=T,
+                      weighted=T,edgesize=6)
+#net2VOSviewer(net_CR_AU)
+```
+
+```{r,message=FALSE, warning=FALSE,results='hide'}
+#Figure 5C Institution collaboration network. 
+M_AU_UN <- metaTagExtraction(M_filter, Field = "AU_UN", sep = ";")
+NetMatrix_AU_UN<-biblioNetwork(
+  M_AU_UN,
+  analysis = "collaboration",
+  network = "universities",
+  sep = ";")
+# Plot the network
+net_AU_UN=networkPlot(NetMatrix_AU_UN, n = 10, type = "auto", Title = "author UN-collaboration",labelsize=0.6,size=T,label=T,label.color=T,curved=T,noloops=T,remove.multiple=T,weighted=T,edgesize=10)
+#net2VOSviewer(net_AU_UN)
+```
+
+```{r,message=FALSE, warning=FALSE}
+#Table 2 Tabulation of the top10 most influential authors
+library(dplyr)
+#Authors dominance ranking
+DF=dominance(results,k=10)
+indices_author=Hindex(M_filter, field = "author", elements = NULL, years=Inf, sep = ";")
+# h-index, g-index and m-index
+filter_indices_author <- semi_join(indices_author$H, DF, by = c("Element"="Author"))[,c(1,2,5)]
+filter_indices_author <- setNames(filter_indices_author, c("Author","H-index","Total citation"))
+merge_index <- merge(DF,filter_indices_author,by="Author") 
+merge_index <- merge_index[,c(8,1,2,3,4,5,6,7,9,10)] %>%
+  arrange(merge_index$`Rank by DF`)
+print(merge_index)
+```
+
+## Figure 6 and Table 3 Most cited documents and document’s co-citation
+```{r,message=FALSE, warning=FALSE,results='hide'}
+#Figure 6 A co-citation network graph of documents. 
+M_SR <- metaTagExtraction(M_filter, Field = "SR", sep = ";")
+NetMatrix_SR<-biblioNetwork(
+  M_SR,
+  analysis = "co-citation",
+  network = "references",
+  sep = ";")
+# Plot the network
+net_SR=networkPlot(NetMatrix_SR, n = 20, type = "auto", Title = "Networks of Reference co-citations",
+                      labelsize=0.6,size=T,label=T,label.color=T,curved=T,noloops=T,remove.multiple=T,
+                      weighted=T,edgesize=6)
+#net2VOSviewer(net_SR)
+```
+
+```{r,message=FALSE, warning=FALSE}
+#Table 3 The top10 cited documents
+CR_localCitations <- localCitations(M_filter, sep = ";")
+CR_localCitations$Papers <- CR_localCitations$Papers[1:10,-3]
+print(CR_localCitations$Papers)
+```
+
+## Figure 7 and Table 3 Most relevant words, keywords co-occurrence assessment and trend topic
+```{r,message=FALSE, warning=FALSE,results='hide'}
+#Figure 7A Word cloud generated from keyword plus (ID) 
+require(devtools)
+install_github("lchiffon/wordcloud2")
+library(wordcloud2)
+Summary_500 <- summary(object = results, k = 500, pause = FALSE)
+ID<-Summary_500[["MostRelKeywords"]][,3:4]
+ID<-transform(ID,Articles=as.numeric(Articles))
+wordcloud2_ID=wordcloud2(data = ID,color = "random-light", backgroundColor = "white",minRotation = -pi/6, maxRotation = -pi/6, minSize = 10,rotateRatio = 0,shape="circle",fontFamily = "times new roman",size=1)
+```
+```{r}
+wordcloud2_ID
+```
+
+```{r,message=FALSE, warning=FALSE,results='hide'}
+#Figure 7B Keywords co-occurrence network (KCN).
+NetMatrix_Keyword_co<-biblioNetwork(M_filter,analysis = "co-occurrences",network = "keywords",sep = ";")
+# Plot the network
+net_Keyword_co=networkPlot(NetMatrix_Keyword_co, n = 50, type = "auto", Title = "Networks of Keyword co-occurrences",
+                           labelsize=0.6,size=T,label=T,label.color=T,curved=T,noloops=T,remove.multiple=T,
+                           weighted=T,edgesize=6)
+#net2VOSviewer(net_Keyword_co)
+```
+
+```{r,message=FALSE, warning=FALSE,results='hide'}
+#Figure 7C Trend topics.
+res_fieldByYear <- fieldByYear(M_filter, field = "ID", timespan = NULL,
+                               min.freq = 0, n.items = 1, graph = TRUE)
+```
+
+#Table S3 Most significant words from author’s keywords and keyword plus
+```{r,message=FALSE, warning=FALSE}
+print(Summary$MostRelKeywords)
+```
